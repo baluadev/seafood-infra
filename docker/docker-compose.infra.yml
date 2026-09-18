@@ -1,0 +1,91 @@
+# ============================================
+# SeaShop — Infrastructure Only (Local Dev)
+# ============================================
+# Chạy: docker compose -f seafood-infra/docker/docker-compose.infra.yml up -d
+# Dừng: docker compose -f seafood-infra/docker/docker-compose.infra.yml down
+# Xóa data: docker compose -f seafood-infra/docker/docker-compose.infra.yml down -v
+
+networks:
+  seashop-net:
+    driver: bridge
+
+volumes:
+  pg-data:
+  redis-data:
+
+services:
+  # === PostgreSQL 16 ===
+  postgres:
+    image: postgres:16-alpine
+    container_name: seashop-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-seashop_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-seashop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-seashop_secret_change_me}
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c max_locks_per_transaction=256
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ../services/postgres/init:/docker-entrypoint-initdb.d
+      - ../services/postgres/conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - seashop-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-seashop} -d ${POSTGRES_DB:-seashop_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # === PgBouncer (Connection Pooler) ===
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: seashop-pgbouncer
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PGBOUNCER_PORT:-6432}:5432"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-seashop}:${POSTGRES_PASSWORD:-seashop_secret_change_me}@postgres:5432/${POSTGRES_DB:-seashop_dev}
+      POOL_MODE: transaction
+      DEFAULT_POOL_SIZE: 25
+      MAX_CLIENT_CONN: 1000
+      MAX_DB_CONNECTIONS: 100
+      MIN_POOL_SIZE: 5
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - seashop-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U ${POSTGRES_USER:-seashop}"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # === Redis 7.4 ===
+  redis:
+    image: redis:7.4-alpine
+    container_name: seashop-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 60 1000
+    volumes:
+      - redis-data:/data
+    networks:
+      - seashop-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

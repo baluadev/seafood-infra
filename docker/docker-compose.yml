@@ -1,0 +1,133 @@
+# ============================================
+# SeaShop — Full Stack Docker Test
+# ============================================
+# Dùng để build và test toàn bộ stack trước khi deploy lên cloud
+#
+# Usage:
+#   docker compose -f seafood-infra/docker/docker-compose.yml up --build
+#   docker compose -f seafood-infra/docker/docker-compose.yml down -v
+#
+# Yêu cầu: Copy .env.example thành .env và điền giá trị
+
+networks:
+  seashop-net:
+    driver: bridge
+
+volumes:
+  pg-data:
+  redis-data:
+
+services:
+  # ===== INFRASTRUCTURE =====
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: seashop-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-seashop_dev}
+      POSTGRES_USER: ${POSTGRES_USER:-seashop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-seashop_secret_change_me}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ../services/postgres/init:/docker-entrypoint-initdb.d
+      - ../services/postgres/conf/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - seashop-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-seashop} -d ${POSTGRES_DB:-seashop_dev}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: seashop-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - seashop-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===== APPLICATIONS =====
+
+  api:
+    build:
+      context: ../../seafood-api
+      dockerfile: Dockerfile
+      target: production
+    container_name: seashop-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-seashop}:${POSTGRES_PASSWORD:-seashop_secret_change_me}@postgres:5432/${POSTGRES_DB:-seashop_dev}
+      DATABASE_DIRECT_URL: postgresql://${POSTGRES_USER:-seashop}:${POSTGRES_PASSWORD:-seashop_secret_change_me}@postgres:5432/${POSTGRES_DB:-seashop_dev}
+      JWT_SECRET: ${JWT_SECRET:-dev_secret_change_in_production_please_use_64_chars}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      PORT: 3001
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_KEY:-}
+      PAY2S_IS_SANDBOX: ${PAY2S_IS_SANDBOX:-true}
+      PAY2S_PARTNER_CODE: ${PAY2S_PARTNER_CODE:-}
+      PAY2S_ACCESS_KEY: ${PAY2S_ACCESS_KEY:-}
+      PAY2S_SECRET_KEY: ${PAY2S_SECRET_KEY:-}
+      PAY2S_SANDBOX_PARTNER_CODE: ${PAY2S_SANDBOX_PARTNER_CODE:-}
+      PAY2S_SANDBOX_ACCESS_KEY: ${PAY2S_SANDBOX_ACCESS_KEY:-}
+      PAY2S_SANDBOX_SECRET_KEY: ${PAY2S_SANDBOX_SECRET_KEY:-}
+      PAY2S_RETURN_URL: ${PAY2S_RETURN_URL:-http://localhost:3000/payment/result}
+      PAY2S_IPN_URL: ${PAY2S_IPN_URL:-}
+      PAY2S_PARTNER_NAME: ${PAY2S_PARTNER_NAME:-SeaShop}
+      PAY2S_BANK_ACCOUNTS: ${PAY2S_BANK_ACCOUNTS:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - seashop-net
+
+  dashboard:
+    build:
+      context: ../../seafood-dashboard
+      dockerfile: Dockerfile
+    container_name: seashop-dashboard
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+    networks:
+      - seashop-net
+
+  admin:
+    build:
+      context: ../../seafood-admin
+      dockerfile: Dockerfile
+    container_name: seashop-admin
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001/api/v1
+    networks:
+      - seashop-net
+
+  # ===== NGINX (Reverse Proxy) =====
+
+  nginx:
+    image: nginx:alpine
+    container_name: seashop-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ../services/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - dashboard
+      - admin
+    networks:
+      - seashop-net

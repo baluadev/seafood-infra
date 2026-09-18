@@ -1,0 +1,4 @@
+.env
+services/postgres/data/
+services/minio/data/
+*.log
