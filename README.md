@@ -75,8 +75,27 @@ Sau khi tạo project trên Supabase, điền vào `seafood-api/.env`:
 
 ## Deploy
 
-| Service | Platform | Command |
-|---------|----------|---------|
-| `seafood-api` | Render | Auto-deploy từ GitHub |
-| `seafood-dashboard` | Vercel | Auto-deploy từ GitHub |
-| `seafood-admin` | Vercel | Auto-deploy từ GitHub |
+| Service | Platform | URL |
+|---------|----------|-----|
+| `seafood-api` | Render | https://seafood-api.onrender.com |
+| `seafood-dashboard` | Vercel | https://fresh-sea.vercel.app |
+| `seafood-admin` | Vercel | https://freshsea-admin.vercel.app |
+
+## Environment Variables — Production
+
+### seafood-api (Render)
+| Biến | Giá trị |
+|------|---------|
+| `DATABASE_URL` | Supabase Transaction pooler (port 6543) |
+| `DATABASE_DIRECT_URL` | Supabase Session pooler (port 5432) |
+| `SUPABASE_URL` | `https://kpjrdtaojintlniuehfg.supabase.co` |
+| `SUPABASE_ANON_KEY` | Supabase → Settings → API → anon key |
+| `SUPABASE_SERVICE_KEY` | Supabase → Settings → API → service_role key |
+| `JWT_SECRET` | Random 64-char string |
+| `PAY2S_RETURN_URL` | `https://fresh-sea.vercel.app/payment/result` |
+| `PAY2S_IPN_URL` | `https://seafood-api.onrender.com/api/v1/payment/pay2s/webhook` |
+
+### seafood-dashboard & seafood-admin (Vercel)
+| Biến | Giá trị |
+|------|---------|
+| `NEXT_PUBLIC_API_URL` | `https://seafood-api.onrender.com/api/v1` |
